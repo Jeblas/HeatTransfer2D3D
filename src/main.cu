@@ -121,7 +121,7 @@ void set_config_values(config_values & conf, std::string & file_name) {
 }
 
 __global__ void left_elements(float * old_grid, float * new_grid, int size, int width, float k) {
-    int idx = treadIdx.x + blockIdx.x * blockDim.x;
+    int idx = threadIdx.x + blockIdx.x * blockDim.x;
     if (idx < size && idx % width != 0) {
         // if not out of range and not a left edge;
         new_grid[idx] += k * (old_grid[idx - 1] - old_grid[idx]);
@@ -129,7 +129,7 @@ __global__ void left_elements(float * old_grid, float * new_grid, int size, int 
 }
 
 __global__ void right_elements(float * old_grid, float * new_grid, int size, int width, float k) {
-    int idx = treadIdx.x + blockIdx.x * blockDim.x;
+    int idx = threadIdx.x + blockIdx.x * blockDim.x;
     if (idx < size && idx % width != width - 1) {
         // if not out of range and not a right edge;
         new_grid[idx] += k * (old_grid[idx + 1] - old_grid[idx]);
@@ -137,7 +137,7 @@ __global__ void right_elements(float * old_grid, float * new_grid, int size, int
 }
 
 __global__ void top_elements(float * old_grid, float * new_grid, int size, int width, float k, int area) {
-    int idx = treadIdx.x + blockIdx.x * blockDim.x;
+    int idx = threadIdx.x + blockIdx.x * blockDim.x;
     if (idx < size && idx % area >=  width) {
         // if not out of range and not a top edge;
         new_grid[idx] += k * (old_grid[idx - width] - old_grid[idx]);
@@ -145,7 +145,7 @@ __global__ void top_elements(float * old_grid, float * new_grid, int size, int w
 }
 
 __global__ void bottom_elements(float * old_grid, float * new_grid, int size, int width, float k, int area) {
-    int idx = treadIdx.x + blockIdx.x * blockDim.x;
+    int idx = threadIdx.x + blockIdx.x * blockDim.x;
     if (idx < size && idx % area < area - width) {
         // if not out of range and not a bottom edge;
         new_grid[idx] += k * (old_grid[idx + width] - old_grid[idx]);
@@ -153,7 +153,7 @@ __global__ void bottom_elements(float * old_grid, float * new_grid, int size, in
 }
 
 __global__ void front_elements(float * old_grid, float * new_grid, int size, int width, float k, int area) {
-    int idx = treadIdx.x + blockIdx.x * blockDim.x;
+    int idx = threadIdx.x + blockIdx.x * blockDim.x;
     if (idx < size && idx >= area) {
         // if not out of range and not a front edge;
         new_grid[idx] += k * (old_grid[idx - area] - old_grid[idx]);
@@ -161,23 +161,22 @@ __global__ void front_elements(float * old_grid, float * new_grid, int size, int
 }
 
 __global__ void back_elements(float * old_grid, float * new_grid, int size, int width, float k, int area) {
-    int idx = treadIdx.x + blockIdx.x * blockDim.x;
+    int idx = threadIdx.x + blockIdx.x * blockDim.x;
     if (idx < size && idx < size - area) {
         // if not out of range and not a back edge;
         new_grid[idx] += k * (old_grid[idx + area] - old_grid[idx]);
     }
 }
 
-__global__ void init_grid_values(float * a, float * b, int size, float value) {
-    int idx = treadIdx.x + blockIdx.x * blockDim.x;
+__global__ void init_grid_values(float * a, int size, float value) {
+    int idx = threadIdx.x + blockIdx.x * blockDim.x;
     if (idx < size) {
         a[idx] = value;
-        b[idx] = value;
     }
 }
 
 __global__ void copy_array_elements(float * lhs, float * rhs, int size) {
-    int idx = treadIdx.x + blockIdx.x * blockDim.x;
+    int idx = threadIdx.x + blockIdx.x * blockDim.x;
     if (idx < size) {
         lhs[idx] = rhs[idx];
     }
@@ -249,13 +248,13 @@ int main(int argc, char * argv[]) {
     // Output host_grid values to files and std::cout
     int index = 0;
     for (int layer = 0; layer < conf.grid_depth; ++layer) {
-        for (int row = 0; row < conf.grid_height; ++col) {
-            for(int col = 0; col < conf.grid_width - 1) {
+        for (int row = 0; row < conf.grid_height; ++row) {
+            for(int col = 0; col < conf.grid_width - 1; ++col) {
                 std::cout << host_grid[index++] << ',';
             }
             std::cout << host_grid[index++] << '\n';
         }
-        std::count << '\n';
+        std::cout << '\n';
     }
 
 
