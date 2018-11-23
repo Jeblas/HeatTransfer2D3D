@@ -5,6 +5,12 @@
 
 #include <chrono>
 
+// TODO
+//      add heater elements
+//      make use of cuda shared memory
+//      restructure project
+//      add output to file
+
 struct block{
     uint32_t x;
     uint32_t y;
@@ -114,7 +120,6 @@ void set_config_values(config_values & conf, std::string & file_name) {
     conf_file.close();
 }
 
-/*
 __global__ void left_elements(float * old_grid, float * new_grid, int size, int width, float k) {
     int idx = treadIdx.x + blockIdx.x * blockDim.x;
     if (idx < size && idx % width != 0) {
@@ -177,7 +182,7 @@ __global__ void copy_array_elements(float * lhs, float * rhs, int size) {
         lhs[idx] = rhs[idx];
     }
 }
-*/
+
 
 int main(int argc, char * argv[]) {
     auto start = std::chrono::high_resolution_clock::now();
@@ -198,7 +203,7 @@ int main(int argc, char * argv[]) {
     std::cout << "grid_depth: " << conf.grid_depth << '\n';
     std::cout << "starting_temp: " << conf.starting_temp << '\n';
     std::cout << "block 1 x: " << conf.blocks[0].temp << std::endl;
-/*
+
     //// Have values from config file
 
     int area = conf.grid_width * conf.grid_height;
@@ -255,7 +260,7 @@ int main(int argc, char * argv[]) {
 
 
     delete[] host_grid;   
-*/ 
+
     return 0;
 }
 
