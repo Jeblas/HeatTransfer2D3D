@@ -6,7 +6,7 @@
 #include <chrono>
 
 // TODO
-//      add heater elements
+//      create array to reference heater locations instead of recalculating values
 //      make use of cuda shared memory
 //      restructure project
 //      add output to file
@@ -182,6 +182,25 @@ __global__ void copy_array_elements(float * lhs, float * rhs, int size) {
     }
 }
 
+__global__ void place_fixed_temp_block(float * array, int array_width, int array_height, int x, int y, int z, int w, int h, float value, int size) {
+    int idx = threadIdx.x + blockIdx.x * blockDim.x;
+
+    // 4d start = x 
+    //          + (y * array_width) 
+    //          + (z * array_width * array_height)
+    //          + (a * array_width * array_height * array_depth)
+    // 4d offset = (idx % w) 
+    //          + array_width * (idx % (w * h)) / w)
+    //          + (array_width * array_height) * ((idx % (w * h * d))  / (w * h))
+    //          + (array_width * array_height * array_depth) * (idx / (w * h * d))
+
+    if (idx < size) {
+        int start = x + (y * array_width) + (z * array_width * array_height);
+        int index = start + (idx % w) + array_width * ((idx % (w * h)) / w) + (array_width * array_height) * (idx / (w * h));
+        array[index] = value;
+    }
+}
+
 
 int main(int argc, char * argv[]) {
     auto start = std::chrono::high_resolution_clock::now();
@@ -203,6 +222,8 @@ int main(int argc, char * argv[]) {
     std::cout << "starting_temp: " << conf.starting_temp << '\n';
     std::cout << "block 1 x: " << conf.blocks[0].temp << std::endl;
 
+    start = std::chrono::high_resolution_clock::now();
+
     //// Have values from config file
 
     int area = conf.grid_width * conf.grid_height;
@@ -220,7 +241,16 @@ int main(int argc, char * argv[]) {
 
     init_grid_values<<<num_blocks, TPB>>>(new_grid, size, conf.starting_temp);
 
-    // TODO copy fixed values into new_grid
+    // Copy fixed values into new_grid
+    for (int block_idx = 0; block_idx < conf.blocks.size(); ++block_idx) {
+        int block_size = conf.blocks[block_idx].width * conf.blocks[block_idx].height * conf.blocks[block_idx].depth;
+        int blocks = (block_size + TPB - 1) / TPB;
+        place_fixed_temp_block<<<blocks, TPB>>>(new_grid, conf.grid_width, conf.grid_height,
+            conf.blocks[block_idx].x, conf.blocks[block_idx].y, conf.blocks[block_idx].z,
+            conf.blocks[block_idx].width, conf.blocks[block_idx].height, conf.blocks[block_idx].temp, block_size);
+        cudaThreadSynchronize();
+    }
+    
 
     for (int i = 0; i < conf.num_timesteps; ++i) {
         copy_array_elements<<<num_blocks, TPB>>>(old_grid, new_grid, size);     // old = new
@@ -235,7 +265,15 @@ int main(int argc, char * argv[]) {
             back_elements<<<num_blocks, TPB>>>(old_grid, new_grid, size, conf.grid_width, conf.k, area);
         }
 
-        //TODO copy fixed values into new_grid
+           // Copy fixed values into new_grid
+        for (int block_idx = 0; block_idx < conf.blocks.size(); ++block_idx) {
+            int block_size = conf.blocks[block_idx].width * conf.blocks[block_idx].height * conf.blocks[block_idx].depth;
+            int blocks = (block_size + TPB - 1) / TPB;
+            place_fixed_temp_block<<<blocks, TPB>>>(new_grid, conf.grid_width, conf.grid_height,
+                conf.blocks[block_idx].x, conf.blocks[block_idx].y, conf.blocks[block_idx].z,
+                conf.blocks[block_idx].width, conf.blocks[block_idx].height, conf.blocks[block_idx].temp, block_size);
+            cudaThreadSynchronize();
+        }
 
         cudaThreadSynchronize();
     }
@@ -244,6 +282,10 @@ int main(int argc, char * argv[]) {
     cudaMemcpy(host_grid, new_grid, size * sizeof(float), cudaMemcpyDeviceToHost);
     cudaFree(old_grid);
     cudaFree(new_grid);
+
+    stop = std::chrono::high_resolution_clock::now();
+    duration = (stop - start);
+    std::cout << duration.count() * 1000 * 1000 << "us" << '\n';
 
     // Output host_grid values to files and std::cout
     int index = 0;
