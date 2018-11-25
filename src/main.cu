@@ -21,6 +21,7 @@ struct block{
     uint32_t width;
     uint32_t height;
     uint32_t depth;
+    uint32_t size;
     float temp;
 };
 
@@ -67,7 +68,7 @@ block line_to_block(bool is_3d, std::string & line) {
 
     token = token.substr(token.find(',') + 1);
     out_block.temp = atof(token.substr(0, token.find(',')).c_str());
-
+    out_block.size = out_block.width * out_block.height * out_block.depth;
     return out_block;
 }
 
@@ -172,6 +173,28 @@ __global__ void place_fixed_temp_block(float * array, int array_width, int array
 }
 
 __global__ void mono_3d (float * old_grid, float * new_grid, int size, int width, float k, int area) {
+    //int idx = threadIdx.x + blockIdx.x * blockDim.x;
+    /*  USE PTX assembly if nvcc doesn't automatically detect optimal instruction
+        https://docs.nvidia.com/cuda/parallel-thread-execution/index.html#integer-arithmetic-instructions-mad
+        mad{.hi,.lo,.wide}.type  d, a, b, c;
+        mad.hi.sat.s32           d, a, b, c;
+
+        .type = { .u16, .u32, .u64,
+          .s16, .s32, .s64 };
+        
+        
+        use: @p mad.wide.s32  idx, blockIDx.x, blockDim.x, threadIdx.x;
+        uint idx;
+        asm("mad.lo.u32  %0, %1, %2, %3"; : "=r"(idx) : "r"(blockIDx.x), "r"(blockDim.x), "r"(threadIdx.x));
+    
+    uint idx;
+    uint blkID = blockIdx.x;
+    uint blkDim = blockDim.x;
+    uint thrID = threadIdx.x;
+    asm("mad.lo.u32  %0, %1, %2, %3;" : "=r"(idx) : "r"(blkID), "r"(blkDim), "r"(thrID));
+
+    */
+
     uint idx;
     uint blkID = blockIdx.x;
     uint blkDim = blockDim.x;
@@ -243,80 +266,18 @@ __global__ void mono_2d (float * old_grid, float * new_grid, int size, int width
 
 }
 
-
-int main(int argc, char * argv[]) {
-    auto start = std::chrono::high_resolution_clock::now();
-
-    config_values conf;
-    std::string file_name(argv[1]);
-    set_config_values(conf, file_name);
-
-    auto stop = std::chrono::high_resolution_clock::now();
-    std::chrono::duration<double> duration = (stop - start);
-    std::cout << duration.count() * 1000 * 1000 << "us" << '\n';
-
-    start = std::chrono::high_resolution_clock::now();
-
-    int area = conf.grid_width * conf.grid_height;
-    int size = area * conf.grid_depth;
-    int TPB = 512;
-    int num_blocks = (size + TPB - 1) / TPB;
-
-    float * new_grid;
-    float * old_grid;
-    float * host_grid = new float[size];
-
-    cudaMalloc((void**) & new_grid, size * sizeof(float));
-    cudaMalloc((void**) & old_grid, size * sizeof(float));
-
-
-    init_grid_values<<<num_blocks, TPB>>>(new_grid, size, conf.starting_temp);
-
+void copy_fixed_blocks (config_values & conf, int TPB, float *new_grid) {
     // Copy fixed values into new_grid
     for (int block_idx = 0; block_idx < conf.blocks.size(); ++block_idx) {
-        int block_size = conf.blocks[block_idx].width * conf.blocks[block_idx].height * conf.blocks[block_idx].depth;
-        int blocks = (block_size + TPB - 1) / TPB;
+        int blocks = (conf.blocks[block_idx].size + TPB - 1) / TPB;
         place_fixed_temp_block<<<blocks, TPB>>>(new_grid, conf.grid_width, conf.grid_height,
             conf.blocks[block_idx].x, conf.blocks[block_idx].y, conf.blocks[block_idx].z,
-            conf.blocks[block_idx].width, conf.blocks[block_idx].height, conf.blocks[block_idx].temp, block_size);
+            conf.blocks[block_idx].width, conf.blocks[block_idx].height, conf.blocks[block_idx].temp, conf.blocks[block_idx].size);
         cudaThreadSynchronize();
     }
+}
 
-    // calculate fixed values
-    
-
-    for (int i = 0; i < conf.num_timesteps; ++i) {
-        copy_array_elements<<<num_blocks, TPB>>>(old_grid, new_grid, size);     // old = new
-       
-        if (conf.is_3d) {
-            mono_3d<<<num_blocks, TPB>>>(old_grid, new_grid, size, conf.grid_width, conf.k, area);
-        } else {
-            mono_2d<<<num_blocks, TPB>>>(old_grid, new_grid, size, conf.grid_width, conf.k, area);
-        }
-        cudaThreadSynchronize();
-           // Copy fixed values into new_grid
-        for (int block_idx = 0; block_idx < conf.blocks.size(); ++block_idx) {
-            int block_size = conf.blocks[block_idx].width * conf.blocks[block_idx].height * conf.blocks[block_idx].depth;
-            int blocks = (block_size + TPB - 1) / TPB;
-            place_fixed_temp_block<<<blocks, TPB>>>(new_grid, conf.grid_width, conf.grid_height,
-                conf.blocks[block_idx].x, conf.blocks[block_idx].y, conf.blocks[block_idx].z,
-                conf.blocks[block_idx].width, conf.blocks[block_idx].height, conf.blocks[block_idx].temp, block_size);
-            cudaThreadSynchronize();
-        }
-
-        cudaThreadSynchronize();
-    }
-
-    // Copy elements from GPU to Host
-    cudaMemcpy(host_grid, new_grid, size * sizeof(float), cudaMemcpyDeviceToHost);
-    cudaFree(old_grid);
-    cudaFree(new_grid);
-
-    stop = std::chrono::high_resolution_clock::now();
-    duration = (stop - start);
-    std::cout << duration.count() * 1000 * 1000 << "us" << '\n';
-
-    // Output host_grid values to files and std::cout
+void output_final_values (config_values & conf, float * host_grid) {
     // TODO fix output for last grid element
     int index = 0;
     for (int layer = 0; layer < conf.grid_depth; ++layer) {
@@ -328,121 +289,68 @@ int main(int argc, char * argv[]) {
         }
         std::cout << '\n';
     }
+}
 
+int main(int argc, char * argv[]) {
+
+    auto start = std::chrono::high_resolution_clock::now();
+
+    config_values conf;
+    std::string file_name(argv[1]);
+    set_config_values(conf, file_name);
+
+    int TPB = 512; // could change to a define (need to edit copy_fixed_blocks())
+    int area = conf.grid_width * conf.grid_height;
+    int size = area * conf.grid_depth;
+    int num_blocks = (size + TPB - 1) / TPB;
+    float * new_grid;
+    float * old_grid;
+    float * host_grid = new float[size];
+
+    auto stop = std::chrono::high_resolution_clock::now();
+    std::chrono::duration<double> duration = (stop - start);
+    std::cout << duration.count() * 1000 * 1000 << "us" << '\n';
+
+    start = std::chrono::high_resolution_clock::now();
+
+    cudaMalloc((void**) & new_grid, size * sizeof(float));
+    cudaMalloc((void**) & old_grid, size * sizeof(float));
+ 
+    init_grid_values<<<num_blocks, TPB>>>(new_grid, size, conf.starting_temp);
+    cudaThreadSynchronize();
+
+    copy_fixed_blocks(conf , TPB, new_grid);
+
+    if (conf.is_3d) {
+        for (int i = 0; i < conf.num_timesteps; ++i) { 
+            copy_array_elements<<<num_blocks, TPB>>>(old_grid, new_grid, size);     // old = new
+            mono_3d<<<num_blocks, TPB>>>(old_grid, new_grid, size, conf.grid_width, conf.k, area);
+            cudaThreadSynchronize();       
+            copy_fixed_blocks(conf, TPB, new_grid);
+            cudaThreadSynchronize();
+        }
+    } else {
+        for (int i = 0; i < conf.num_timesteps; ++i) { 
+            copy_array_elements<<<num_blocks, TPB>>>(old_grid, new_grid, size);     // old = new
+            mono_2d<<<num_blocks, TPB>>>(old_grid, new_grid, size, conf.grid_width, conf.k, area);
+            cudaThreadSynchronize();       
+            copy_fixed_blocks(conf, TPB, new_grid);
+            cudaThreadSynchronize();
+        }
+    }
+
+    cudaMemcpy(host_grid, new_grid, size * sizeof(float), cudaMemcpyDeviceToHost);
+
+    cudaFree(old_grid);
+    cudaFree(new_grid);
+
+    stop = std::chrono::high_resolution_clock::now();
+    duration = (stop - start);
+    std::cout << duration.count() * 1000 * 1000 << "us" << '\n';
+
+    // Output host_grid values to files and std::cout
+    output_final_values(conf, host_grid);
     delete[] host_grid;   
 
     return 0;
 }
-
- /* Old timestep for loop after copy
-        left_elements<<<num_blocks, TPB>>>(old_grid, new_grid, size, conf.grid_width, conf.k);
-        right_elements<<<num_blocks, TPB>>>(old_grid, new_grid, size, conf.grid_width, conf.k);
-        top_elements<<<num_blocks, TPB>>>(old_grid, new_grid, size, conf.grid_width, conf.k, area);
-        bottom_elements<<<num_blocks, TPB>>>(old_grid, new_grid, size, conf.grid_width, conf.k, area);
-
-        if (conf.is_3d) {
-            front_elements<<<num_blocks, TPB>>>(old_grid, new_grid, size, conf.grid_width, conf.k, area);
-            back_elements<<<num_blocks, TPB>>>(old_grid, new_grid, size, conf.grid_width, conf.k, area);
-        }
-        */
-
-/*
-__global__ void left_elements(float * old_grid, float * new_grid, int size, int width, float k) {
-    //int idx = threadIdx.x + blockIdx.x * blockDim.x;
-    /*  USE PTX assembly if nvcc doesn't automatically detect optimal instruction
-        https://docs.nvidia.com/cuda/parallel-thread-execution/index.html#integer-arithmetic-instructions-mad
-        mad{.hi,.lo,.wide}.type  d, a, b, c;
-        mad.hi.sat.s32           d, a, b, c;
-
-        .type = { .u16, .u32, .u64,
-          .s16, .s32, .s64 };
-        
-        
-        use: @p mad.wide.s32  idx, blockIDx.x, blockDim.x, threadIdx.x;
-        uint idx;
-        asm("mad.lo.u32  %0, %1, %2, %3"; : "=r"(idx) : "r"(blockIDx.x), "r"(blockDim.x), "r"(threadIdx.x));
-    
-    uint idx;
-    uint blkID = blockIdx.x;
-    uint blkDim = blockDim.x;
-    uint thrID = threadIdx.x;
-    asm("mad.lo.u32  %0, %1, %2, %3;" : "=r"(idx) : "r"(blkID), "r"(blkDim), "r"(thrID));
-
-    * /
-
-    uint idx;
-    uint blkID = blockIdx.x;
-    uint blkDim = blockDim.x;
-    uint thrID = threadIdx.x;
-    asm("mad.lo.u32  %0, %1, %2, %3;" : "=r"(idx) : "r"(blkID), "r"(blkDim), "r"(thrID));
-    if (idx < size && idx % width != 0) {
-        // if not out of range and not a left edge;
-        new_grid[idx] += k * (old_grid[idx - 1] - old_grid[idx]);
-    }
-}
-
-__global__ void right_elements(float * old_grid, float * new_grid, int size, int width, float k) {
-    //int idx = threadIdx.x + blockIdx.x * blockDim.x;
-    uint idx;
-    uint blkID = blockIdx.x;
-    uint blkDim = blockDim.x;
-    uint thrID = threadIdx.x;
-    asm("mad.lo.u32  %0, %1, %2, %3;" : "=r"(idx) : "r"(blkID), "r"(blkDim), "r"(thrID));
-    if (idx < size && idx % width != width - 1) {
-        // if not out of range and not a right edge;
-        new_grid[idx] += k * (old_grid[idx + 1] - old_grid[idx]);
-    }
-}
-
-__global__ void top_elements(float * old_grid, float * new_grid, int size, int width, float k, int area) {
-    //int idx = threadIdx.x + blockIdx.x * blockDim.x;
-    uint idx;
-    uint blkID = blockIdx.x;
-    uint blkDim = blockDim.x;
-    uint thrID = threadIdx.x;
-    asm("mad.lo.u32  %0, %1, %2, %3;" : "=r"(idx) : "r"(blkID), "r"(blkDim), "r"(thrID));
-    if (idx < size && idx % area >=  width) {
-        // if not out of range and not a top edge;
-        new_grid[idx] += k * (old_grid[idx - width] - old_grid[idx]);
-    }
-}
-
-__global__ void bottom_elements(float * old_grid, float * new_grid, int size, int width, float k, int area) {
-    //int idx = threadIdx.x + blockIdx.x * blockDim.x;
-    uint idx;
-    uint blkID = blockIdx.x;
-    uint blkDim = blockDim.x;
-    uint thrID = threadIdx.x;
-    asm("mad.lo.u32  %0, %1, %2, %3;" : "=r"(idx) : "r"(blkID), "r"(blkDim), "r"(thrID));
-    if (idx < size && idx % area < area - width) {
-        // if not out of range and not a bottom edge;
-        new_grid[idx] += k * (old_grid[idx + width] - old_grid[idx]);
-    }
-}
-
-__global__ void front_elements(float * old_grid, float * new_grid, int size, int width, float k, int area) {
-    //int idx = threadIdx.x + blockIdx.x * blockDim.x;
-    uint idx;
-    uint blkID = blockIdx.x;
-    uint blkDim = blockDim.x;
-    uint thrID = threadIdx.x;
-    asm("mad.lo.u32  %0, %1, %2, %3;" : "=r"(idx) : "r"(blkID), "r"(blkDim), "r"(thrID));
-    if (idx < size && idx >= area) {
-        // if not out of range and not a front edge;
-        new_grid[idx] += k * (old_grid[idx - area] - old_grid[idx]);
-    }
-}
-
-__global__ void back_elements(float * old_grid, float * new_grid, int size, int width, float k, int area) {
-    //int idx = threadIdx.x + blockIdx.x * blockDim.x;
-    uint idx;
-    uint blkID = blockIdx.x;
-    uint blkDim = blockDim.x;
-    uint thrID = threadIdx.x;
-    asm("mad.lo.u32  %0, %1, %2, %3;" : "=r"(idx) : "r"(blkID), "r"(blkDim), "r"(thrID));
-    if (idx < size && idx < size - area) {
-        // if not out of range and not a back edge;
-        new_grid[idx] += k * (old_grid[idx + area] - old_grid[idx]);
-    }
-}
-*/
