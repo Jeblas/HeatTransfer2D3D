@@ -138,7 +138,6 @@ void place_fixed_temp_block(float * array, int array_width, int array_height, in
 
 void mono_3d (float * old_grid, float * new_grid, int size, int width, float k, int area) {
 
-
     for (int idx = 0; idx < size; ++idx) {
         float oldValue = old_grid[idx];
         float * newValueLoc = &new_grid[idx];

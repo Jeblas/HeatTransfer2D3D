@@ -231,7 +231,6 @@ __global__ void mono_3d (float * old_grid, float * new_grid, int size, int width
             *newValueLoc += k * (old_grid[idx + area] - oldValue);
         }
     }
-
 }
 
 __global__ void mono_2d (float * old_grid, float * new_grid, int size, int width, float k, int area) {
@@ -263,7 +262,6 @@ __global__ void mono_2d (float * old_grid, float * new_grid, int size, int width
             *newValueLoc += k * (old_grid[idx + width] - oldValue);
         }
     }
-
 }
 
 void copy_fixed_blocks (config_values & conf, int TPB, float *new_grid) {
