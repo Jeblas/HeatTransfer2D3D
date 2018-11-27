@@ -13,7 +13,7 @@ include_directories(
 )
 
 set(SOURCE_FILES
-    src/main.cu
+    src/cuda-heat-diffusion.cu
 )
 
 cuda_add_executable(${PROJECT_NAME} ${SOURCE_FILES} )
