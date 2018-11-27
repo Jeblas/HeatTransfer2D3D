@@ -1,7 +1,6 @@
 #include <algorithm>
 #include <chrono>
 #include <fstream>
-#include <functional>
 #include <iostream>
 #include <string>
 #include <thread>
@@ -294,7 +293,7 @@ int main(int argc, char * argv[]) {
     int area = conf.grid_width * conf.grid_height;
     int size = area * conf.grid_depth;
     int chunk_size;
-    
+
     float * new_grid = new float[size];
     float * old_grid = new float[size];
 
