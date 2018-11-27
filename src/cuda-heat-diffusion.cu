@@ -331,10 +331,12 @@ int main(int argc, char * argv[]) {
     cudaThreadSynchronize();
 
     copy_fixed_blocks(conf , TPB, new_grid);
-
+    cudaThreadSynchronize(); 
+    
     if (conf.is_3d) {
         for (int i = 0; i < conf.num_timesteps; ++i) { 
             copy_array_elements<<<num_blocks, TPB>>>(old_grid, new_grid, size);     // old = new
+            cudaThreadSynchronize(); 
             mono_3d<<<num_blocks, TPB>>>(old_grid, new_grid, size, conf.grid_width, conf.k, area);
             cudaThreadSynchronize();       
             copy_fixed_blocks(conf, TPB, new_grid);
@@ -343,6 +345,7 @@ int main(int argc, char * argv[]) {
     } else {
         for (int i = 0; i < conf.num_timesteps; ++i) { 
             copy_array_elements<<<num_blocks, TPB>>>(old_grid, new_grid, size);     // old = new
+            cudaThreadSynchronize();       
             mono_2d<<<num_blocks, TPB>>>(old_grid, new_grid, size, conf.grid_width, conf.k, area);
             cudaThreadSynchronize();       
             copy_fixed_blocks(conf, TPB, new_grid);
