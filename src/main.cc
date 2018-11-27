@@ -134,64 +134,7 @@ int main(int argc, char * argv[]) {
     std::cout << "grid_depth: " << conf.grid_depth << '\n';
     std::cout << "starting_temp: " << conf.starting_temp << '\n';
     std::cout << "block 1 x: " << conf.blocks[0].temp << std::endl;
-/*
-    //// Have values from config file
 
-    int area = conf.grid_width * conf.grid_height;
-    int size = area * conf.grid_depth;
-    int TPB = 512;
-    int num_blocks = (size + TPB - 1) / TPB;
-
-    float * new_grid;
-    float * old_grid;
-    float * host_grid = new float[size];
-
-    cudaMalloc((void**) & new_grid, size * sizeof(float));
-    cudaMalloc((void**) & old_grid, size * sizeof(float));
-
-
-    init_grid_values<<<num_blocks, TPB>>>(new_grid, size, conf.starting_temp);
-
-    // TODO copy fixed values into new_grid
-
-    for (int i = 0; i < conf.num_timesteps; ++i) {
-        copy_array_elements<<<num_blocks, TPB>>>(old_grid, new_grid, size);     // old = new
-
-        left_elements<<<num_blocks, TPB>>>(old_grid, new_grid, size, conf.grid_width, conf.k);
-        right_elements<<<num_blocks, TPB>>>(old_grid, new_grid, size, conf.grid_width, conf.k);
-        top_elements<<<num_blocks, TPB>>>(old_grid, new_grid, size, conf.grid_width, conf.k, area);
-        bottom_elements<<<num_blocks, TPB>>>(old_grid, new_grid, size, conf.grid_width, conf.k, area);
-
-        if (conf.is_3d) {
-            front_elements<<<num_blocks, TPB>>>(old_grid, new_grid, size, conf.grid_width, conf.k, area);
-            back_elements<<<num_blocks, TPB>>>(old_grid, new_grid, size, conf.grid_width, conf.k, area);
-        }
-
-        //TODO copy fixed values into new_grid
-
-        cudaThreadSynchronize();
-    }
-
-    // Copy elements from GPU to Host
-    cudaMemcpy(host_grid, new_grid, size * sizeof(float), cudaMemcpyDeviceToHost);
-    cudaFree(old_grid);
-    cudaFree(new_grid);
-
-    // Output host_grid values to files and std::cout
-    int index = 0;
-    for (int layer = 0; layer < conf.grid_depth; ++layer) {
-        for (int row = 0; row < conf.grid_height; ++col) {
-            for(int col = 0; col < conf.grid_width - 1) {
-                std::cout << host_grid[index++] << ',';
-            }
-            std::cout << host_grid[index++] << '\n';
-        }
-        std::count << '\n';
-    }
-
-
-    delete[] host_grid;   
-*/ 
     return 0;
 }
 
