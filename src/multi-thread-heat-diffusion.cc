@@ -226,7 +226,7 @@ void output_final_values (config_values & conf, float * host_grid) {
     for(int col = 0; col < conf.grid_width - 1; ++col) {
         out_file << host_grid[index++] << ", ";
     }
-    out_file << host_grid[index++];
+    out_file << host_grid[index++] << '\n';
 }
 
 void thread_copy_array(int num_threads, int chunk_size, std::vector<std::thread> & threads, float * new_grid, float * old_grid, int size) {
