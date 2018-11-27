@@ -5,15 +5,6 @@
 #include <string>
 #include <vector>
 
-
-// TODO
-//      check if file parameter is present
-//      create array to reference heater locations instead of recalculating values
-//      make use of cuda shared memory
-//      restructure project
-
-// https://docs.nvidia.com/cuda/parallel-thread-execution/index.html#independent-thread-scheduling
-
 struct block{
     uint32_t x;
     uint32_t y;
@@ -125,87 +116,34 @@ void set_config_values(config_values & conf, std::string & file_name) {
     conf_file.close();
 }
 
-__global__ void init_grid_values(float * a, int size, float value) {
-    //int idx = threadIdx.x + blockIdx.x * blockDim.x;
-    uint idx;
-    uint blkID = blockIdx.x;
-    uint blkDim = blockDim.x;
-    uint thrID = threadIdx.x;
-    asm("mad.lo.u32  %0, %1, %2, %3;" : "=r"(idx) : "r"(blkID), "r"(blkDim), "r"(thrID));
-    if (idx < size) {
-        a[idx] = value;
+void init_grid_values(float * a, int size, float value) {
+    for (int i = 0; i < size; ++i){
+        a[i] = value;
     }
 }
 
-__global__ void copy_array_elements(float * lhs, float * rhs, int size) {
-    //int idx = threadIdx.x + blockIdx.x * blockDim.x;
-    uint idx;
-    uint blkID = blockIdx.x;
-    uint blkDim = blockDim.x;
-    uint thrID = threadIdx.x;
-    asm("mad.lo.u32  %0, %1, %2, %3;" : "=r"(idx) : "r"(blkID), "r"(blkDim), "r"(thrID));
-    if (idx < size) {
-        lhs[idx] = rhs[idx];
+void copy_array_elements(float * lhs, float * rhs, int size) {
+    for (int i = 0; i < size; ++i) {
+        lhs[i] = rhs[i];
     }
 }
 
-__global__ void place_fixed_temp_block(float * array, int array_width, int array_height, int x, int y, int z, int w, int h, float value, int size) {
-    //int idx = threadIdx.x + blockIdx.x * blockDim.x;
-    uint idx;
-    uint blkID = blockIdx.x;
-    uint blkDim = blockDim.x;
-    uint thrID = threadIdx.x;
-    asm("mad.lo.u32  %0, %1, %2, %3;" : "=r"(idx) : "r"(blkID), "r"(blkDim), "r"(thrID));
-
-    // 4d start = x 
-    //          + (y * array_width) 
-    //          + (z * array_width * array_height)
-    //          + (a * array_width * array_height * array_depth)
-    // 4d offset = (idx % w) 
-    //          + array_width * (idx % (w * h)) / w)
-    //          + (array_width * array_height) * ((idx % (w * h * d))  / (w * h))
-    //          + (array_width * array_height * array_depth) * (idx / (w * h * d))
-
-    if (idx < size) {
+void place_fixed_temp_block(float * array, int array_width, int array_height, int x, int y, int z, int w, int h, float value, int size) {
+    for (int i = 0; i < size; ++i) {
         int start = x + (y * array_width) + (z * array_width * array_height);
-        int index = start + (idx % w) + array_width * ((idx % (w * h)) / w) + (array_width * array_height) * (idx / (w * h));
+        int index = start + (i % w) + array_width * ((i % (w * h)) / w) + (array_width * array_height) * (i / (w * h));
         array[index] = value;
     }
 }
 
-__global__ void mono_3d (float * old_grid, float * new_grid, int size, int width, float k, int area) {
-    //int idx = threadIdx.x + blockIdx.x * blockDim.x;
-    /*  USE PTX assembly if nvcc doesn't automatically detect optimal instruction
-        https://docs.nvidia.com/cuda/parallel-thread-execution/index.html#integer-arithmetic-instructions-mad
-        mad{.hi,.lo,.wide}.type  d, a, b, c;
-        mad.hi.sat.s32           d, a, b, c;
 
-        .type = { .u16, .u32, .u64,
-          .s16, .s32, .s64 };
-        
-        
-        use: @p mad.wide.s32  idx, blockIDx.x, blockDim.x, threadIdx.x;
-        uint idx;
-        asm("mad.lo.u32  %0, %1, %2, %3"; : "=r"(idx) : "r"(blockIDx.x), "r"(blockDim.x), "r"(threadIdx.x));
-    
-    uint idx;
-    uint blkID = blockIdx.x;
-    uint blkDim = blockDim.x;
-    uint thrID = threadIdx.x;
-    asm("mad.lo.u32  %0, %1, %2, %3;" : "=r"(idx) : "r"(blkID), "r"(blkDim), "r"(thrID));
+void mono_3d (float * old_grid, float * new_grid, int size, int width, float k, int area) {
 
-    */
 
-    uint idx;
-    uint blkID = blockIdx.x;
-    uint blkDim = blockDim.x;
-    uint thrID = threadIdx.x;
+    for (int idx = 0; idx < size; ++idx) {
+        float oldValue = old_grid[idx];
+        float * newValueLoc = &new_grid[idx];
 
-    asm("mad.lo.u32  %0, %1, %2, %3;" : "=r"(idx) : "r"(blkID), "r"(blkDim), "r"(thrID));
-    float oldValue = old_grid[idx];
-    float * newValueLoc = &new_grid[idx];
-    //left
-    if (idx < size) {
         if (idx % width != 0) {
             // if not out of range and not a left edge;
             *newValueLoc += k * (old_grid[idx - 1] - oldValue);
@@ -232,20 +170,12 @@ __global__ void mono_3d (float * old_grid, float * new_grid, int size, int width
             *newValueLoc += k * (old_grid[idx + area] - oldValue);
         }
     }
-
 }
 
-__global__ void mono_2d (float * old_grid, float * new_grid, int size, int width, float k, int area) {
-    uint idx;
-    uint blkID = blockIdx.x;
-    uint blkDim = blockDim.x;
-    uint thrID = threadIdx.x;
-
-    asm("mad.lo.u32  %0, %1, %2, %3;" : "=r"(idx) : "r"(blkID), "r"(blkDim), "r"(thrID));
-    float oldValue = old_grid[idx];
-    float * newValueLoc = &new_grid[idx];
-    //left
-    if (idx < size) {
+void mono_2d (float * old_grid, float * new_grid, int size, int width, float k, int area) {
+    for (int idx = 0; idx < size; ++idx) {
+        float oldValue = old_grid[idx];
+        float * newValueLoc = &new_grid[idx];
         if (idx % width != 0) {
             // if not out of range and not a left edge;
             *newValueLoc += k * (old_grid[idx - 1] - oldValue);
@@ -264,17 +194,14 @@ __global__ void mono_2d (float * old_grid, float * new_grid, int size, int width
             *newValueLoc += k * (old_grid[idx + width] - oldValue);
         }
     }
-
 }
 
 void copy_fixed_blocks (config_values & conf, int TPB, float *new_grid) {
     // Copy fixed values into new_grid
     for (int block_idx = 0; block_idx < conf.blocks.size(); ++block_idx) {
-        int blocks = (conf.blocks[block_idx].size + TPB - 1) / TPB;
-        place_fixed_temp_block<<<blocks, TPB>>>(new_grid, conf.grid_width, conf.grid_height,
+        place_fixed_temp_block(new_grid, conf.grid_width, conf.grid_height,
             conf.blocks[block_idx].x, conf.blocks[block_idx].y, conf.blocks[block_idx].z,
             conf.blocks[block_idx].width, conf.blocks[block_idx].height, conf.blocks[block_idx].temp, conf.blocks[block_idx].size);
-        cudaThreadSynchronize();
     }
 }
 
@@ -311,13 +238,13 @@ int main(int argc, char * argv[]) {
     std::string file_name(argv[1]);
     set_config_values(conf, file_name);
 
-    int TPB = 512; // could change to a define (need to edit copy_fixed_blocks())
+    //int TPB = 512; // could change to a define (need to edit copy_fixed_blocks())
     int area = conf.grid_width * conf.grid_height;
     int size = area * conf.grid_depth;
-    int num_blocks = (size + TPB - 1) / TPB;
-    float * new_grid;
-    float * old_grid;
-    float * host_grid = new float[size];
+    //int num_blocks = (size + TPB - 1) / TPB;
+    float * new_grid = new float[size];
+    float * old_grid = new float[size];
+    //float * host_grid = new float[size];
 
     auto stop = std::chrono::high_resolution_clock::now();
     std::chrono::duration<double> duration = (stop - start);
@@ -325,44 +252,33 @@ int main(int argc, char * argv[]) {
 
     start = std::chrono::high_resolution_clock::now();
 
-    cudaMalloc((void**) & new_grid, size * sizeof(float));
-    cudaMalloc((void**) & old_grid, size * sizeof(float));
- 
-    init_grid_values<<<num_blocks, TPB>>>(new_grid, size, conf.starting_temp);
-    cudaThreadSynchronize();
-
-    copy_fixed_blocks(conf , TPB, new_grid);
+    init_grid_values(new_grid, size, conf.starting_temp);
+    
+    copy_fixed_blocks(conf, 0, new_grid);
 
     if (conf.is_3d) {
         for (int i = 0; i < conf.num_timesteps; ++i) { 
-            copy_array_elements<<<num_blocks, TPB>>>(old_grid, new_grid, size);     // old = new
-            mono_3d<<<num_blocks, TPB>>>(old_grid, new_grid, size, conf.grid_width, conf.k, area);
-            cudaThreadSynchronize();       
-            copy_fixed_blocks(conf, TPB, new_grid);
-            cudaThreadSynchronize();
+            copy_array_elements(old_grid, new_grid, size);     // old = new
+            mono_3d(old_grid, new_grid, size, conf.grid_width, conf.k, area);    
+            copy_fixed_blocks(conf, 0, new_grid);
+
         }
     } else {
         for (int i = 0; i < conf.num_timesteps; ++i) { 
-            copy_array_elements<<<num_blocks, TPB>>>(old_grid, new_grid, size);     // old = new
-            mono_2d<<<num_blocks, TPB>>>(old_grid, new_grid, size, conf.grid_width, conf.k, area);
-            cudaThreadSynchronize();       
-            copy_fixed_blocks(conf, TPB, new_grid);
-            cudaThreadSynchronize();
+            copy_array_elements(old_grid, new_grid, size);     // old = new
+            mono_2d(old_grid, new_grid, size, conf.grid_width, conf.k, area);   
+            copy_fixed_blocks(conf, 0, new_grid);
         }
     }
-
-    cudaMemcpy(host_grid, new_grid, size * sizeof(float), cudaMemcpyDeviceToHost);
-
-    cudaFree(old_grid);
-    cudaFree(new_grid);
 
     stop = std::chrono::high_resolution_clock::now();
     duration = (stop - start);
     std::cout << duration.count() * 1000 * 1000 << "us" << '\n';
 
-    // Output host_grid values to files and std::cout
-    output_final_values(conf, host_grid);
-    delete[] host_grid;   
+    output_final_values(conf, new_grid);
+
+    delete[] old_grid;
+    delete [] new_grid;
 
     return 0;
 }
