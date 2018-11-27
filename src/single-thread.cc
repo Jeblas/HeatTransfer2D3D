@@ -136,7 +136,6 @@ void place_fixed_temp_block(float * array, int array_width, int array_height, in
     }
 }
 
-
 void mono_3d (float * old_grid, float * new_grid, int size, int width, float k, int area) {
 
 
@@ -238,13 +237,10 @@ int main(int argc, char * argv[]) {
     std::string file_name(argv[1]);
     set_config_values(conf, file_name);
 
-    //int TPB = 512; // could change to a define (need to edit copy_fixed_blocks())
     int area = conf.grid_width * conf.grid_height;
     int size = area * conf.grid_depth;
-    //int num_blocks = (size + TPB - 1) / TPB;
     float * new_grid = new float[size];
     float * old_grid = new float[size];
-    //float * host_grid = new float[size];
 
     auto stop = std::chrono::high_resolution_clock::now();
     std::chrono::duration<double> duration = (stop - start);
@@ -253,7 +249,6 @@ int main(int argc, char * argv[]) {
     start = std::chrono::high_resolution_clock::now();
 
     init_grid_values(new_grid, size, conf.starting_temp);
-    
     copy_fixed_blocks(conf, 0, new_grid);
 
     if (conf.is_3d) {

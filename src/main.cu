@@ -5,7 +5,6 @@
 #include <string>
 #include <vector>
 
-
 // TODO
 //      check if file parameter is present
 //      create array to reference heater locations instead of recalculating values
