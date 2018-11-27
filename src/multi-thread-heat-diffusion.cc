@@ -205,7 +205,7 @@ void copy_fixed_blocks (config_values & conf, int TPB, float *new_grid) {
 }
 
 void output_final_values (config_values & conf, float * host_grid) {
-    std::ofstream out_file("heatOutput.csv");
+    std::ofstream out_file("heatOutput-multi.csv");
 
     int index = 0;
     for (int layer = 0; layer < conf.grid_depth - 1; ++layer) {
